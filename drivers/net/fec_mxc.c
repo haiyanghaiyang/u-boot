@@ -4,6 +4,7 @@
  * (C) Copyright 2008 Armadeus Systems nc
  * (C) Copyright 2007 Pengutronix, Sascha Hauer <s.hauer@pengutronix.de>
  * (C) Copyright 2007 Pengutronix, Juergen Beisert <j.beisert@pengutronix.de>
+ * Copyright (C) 2016 Freescale Semiconductor, Inc.
  *
  * SPDX-License-Identifier:	GPL-2.0+
  */
@@ -22,6 +23,7 @@
 #include <asm/io.h>
 #include <asm/errno.h>
 #include <linux/compiler.h>
+#include <asm/arch/sys_proto.h>
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -566,7 +568,7 @@ static int fec_init(struct eth_device *dev, bd_t* bd)
 
 
 	/* Do not access reserved register for i.MX6UL */
-	if (!is_cpu_type(MXC_CPU_MX6UL)) {
+	if (!is_cpu_type(MXC_CPU_MX6UL) && !is_cpu_type(MXC_CPU_MX6ULL)) {
 		/* clear MIB RAM */
 		for (i = mib_ptr; i <= mib_ptr + 0xfc; i += 4)
 			writel(0, i);
@@ -1093,6 +1095,13 @@ int fecmxc_initialize_multi(bd_t *bd, int dev_id, int phy_id, uint32_t addr)
 #endif
 	int ret;
 
+#ifdef CONFIG_MX6
+	if (mx6_enet_fused(addr)) {
+		printf("Ethernet@0x%x is fused, disable it\n", addr);
+		return -2;
+	}
+#endif
+
 #ifdef CONFIG_MX28
 	/*
 	 * The i.MX28 has two ethernet interfaces, but they are not equal.
@@ -1100,7 +1109,11 @@ int fecmxc_initialize_multi(bd_t *bd, int dev_id, int phy_id, uint32_t addr)
 	 */
 	base_mii = MXS_ENET0_BASE;
 #else
+#ifdef CONFIG_FEC_MXC_MDIO_BASE
+	base_mii = CONFIG_FEC_MXC_MDIO_BASE;
+#else
 	base_mii = addr;
+#endif
 #endif
 	debug("eth_init: fec_probe(bd, %i, %i) @ %08x\n", dev_id, phy_id, addr);
 	bus = fec_get_miibus(base_mii, dev_id);

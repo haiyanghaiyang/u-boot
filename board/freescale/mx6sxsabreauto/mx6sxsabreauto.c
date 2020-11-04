@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014 Freescale Semiconductor, Inc.
+ * Copyright (C) 2014-2016 Freescale Semiconductor, Inc.
  *
  * Author: Ye Li <ye.li@nxp.com>
  *
@@ -30,6 +30,13 @@
 #include <usb.h>
 #include <usb/ehci-fsl.h>
 #include <pca953x.h>
+#include <asm/imx-common/video.h>
+#ifdef CONFIG_FSL_FASTBOOT
+#include <fsl_fastboot.h>
+#ifdef CONFIG_ANDROID_RECOVERY
+#include <recovery.h>
+#endif
+#endif /*CONFIG_FSL_FASTBOOT*/
 
 DECLARE_GLOBAL_DATA_PTR;
 
@@ -58,10 +65,20 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define I2C_PMIC	1
 
+#define BUTTON_PAD_CTRL    (PAD_CTL_PKE | PAD_CTL_PUE | \
+	PAD_CTL_PUS_22K_UP | PAD_CTL_DSE_40ohm)
+
 #define GPMI_PAD_CTRL0 (PAD_CTL_PKE | PAD_CTL_PUE | PAD_CTL_PUS_100K_UP)
 #define GPMI_PAD_CTRL1 (PAD_CTL_DSE_40ohm | PAD_CTL_SPEED_MED | \
 			PAD_CTL_SRE_FAST)
 #define GPMI_PAD_CTRL2 (GPMI_PAD_CTRL0 | GPMI_PAD_CTRL1)
+
+#define LCD_PAD_CTRL    (PAD_CTL_HYS | PAD_CTL_PUS_100K_UP | PAD_CTL_PUE | \
+	PAD_CTL_PKE | PAD_CTL_SPEED_MED | PAD_CTL_DSE_40ohm)
+
+#define OTG_ID_PAD_CTRL (PAD_CTL_PKE | PAD_CTL_PUE |		\
+	PAD_CTL_PUS_47K_UP  | PAD_CTL_SPEED_LOW |		\
+	PAD_CTL_DSE_80ohm   | PAD_CTL_SRE_FAST  | PAD_CTL_HYS)
 
 /*Define for building port exp gpio, pin starts from 0*/
 #define PORTEXP_IO_NR(chip, pin) \
@@ -77,6 +94,8 @@ DECLARE_GLOBAL_DATA_PTR;
 
 #define CPU_PER_RST_B	PORTEXP_IO_NR(0x30, 4)
 #define STEER_ENET		PORTEXP_IO_NR(0x32, 2)
+#define LVDS_EN_PIN		PORTEXP_IO_NR(0x30, 7)
+
 
 static int port_exp_direction_output(unsigned gpio, int value)
 {
@@ -151,6 +170,23 @@ static iomux_v3_cfg_t const usdhc4_pads[] = {
 	MX6_PAD_USB_H_STROBE__GPIO7_IO_11 | MUX_PAD_CTRL(NO_PAD_CTRL),
 };
 
+static iomux_v3_cfg_t const fec1_pads[] = {
+	MX6_PAD_ENET1_MDC__ENET1_MDC | MUX_PAD_CTRL(ENET_PAD_CTRL),
+	MX6_PAD_ENET1_MDIO__ENET1_MDIO | MUX_PAD_CTRL(ENET_PAD_CTRL),
+	MX6_PAD_RGMII1_RX_CTL__ENET1_RX_EN | MUX_PAD_CTRL(ENET_RX_PAD_CTRL),
+	MX6_PAD_RGMII1_RD0__ENET1_RX_DATA_0 | MUX_PAD_CTRL(ENET_RX_PAD_CTRL),
+	MX6_PAD_RGMII1_RD1__ENET1_RX_DATA_1 | MUX_PAD_CTRL(ENET_RX_PAD_CTRL),
+	MX6_PAD_RGMII1_RD2__ENET1_RX_DATA_2 | MUX_PAD_CTRL(ENET_RX_PAD_CTRL),
+	MX6_PAD_RGMII1_RD3__ENET1_RX_DATA_3 | MUX_PAD_CTRL(ENET_RX_PAD_CTRL),
+	MX6_PAD_RGMII1_RXC__ENET1_RX_CLK | MUX_PAD_CTRL(ENET_RX_PAD_CTRL),
+	MX6_PAD_RGMII1_TX_CTL__ENET1_TX_EN | MUX_PAD_CTRL(ENET_PAD_CTRL),
+	MX6_PAD_RGMII1_TD0__ENET1_TX_DATA_0 | MUX_PAD_CTRL(ENET_PAD_CTRL),
+	MX6_PAD_RGMII1_TD1__ENET1_TX_DATA_1 | MUX_PAD_CTRL(ENET_PAD_CTRL),
+	MX6_PAD_RGMII1_TD2__ENET1_TX_DATA_2 | MUX_PAD_CTRL(ENET_PAD_CTRL),
+	MX6_PAD_RGMII1_TD3__ENET1_TX_DATA_3 | MUX_PAD_CTRL(ENET_PAD_CTRL),
+	MX6_PAD_RGMII1_TXC__ENET1_RGMII_TXC | MUX_PAD_CTRL(ENET_PAD_CTRL),
+};
+
 static iomux_v3_cfg_t const fec2_pads[] = {
 	MX6_PAD_ENET1_MDC__ENET2_MDC | MUX_PAD_CTRL(ENET_PAD_CTRL),
 	MX6_PAD_ENET1_MDIO__ENET2_MDIO | MUX_PAD_CTRL(ENET_PAD_CTRL),
@@ -173,24 +209,32 @@ static void setup_iomux_uart(void)
 	imx_iomux_v3_setup_multiple_pads(uart1_pads, ARRAY_SIZE(uart1_pads));
 }
 
-static int setup_fec(void)
+static int setup_fec(int fec_id)
 {
 	struct iomuxc *iomuxc_regs = (struct iomuxc *)IOMUXC_BASE_ADDR;
 
-	/* Use 125MHz anatop loopback REF_CLK1 for ENET2 */
-	clrsetbits_le32(&iomuxc_regs->gpr[1], IOMUX_GPR1_FEC2_MASK, 0);
+	if (0 == fec_id)
+		/* Use 125M anatop REF_CLK1 for ENET1, clear gpr1[13], gpr1[17]*/
+		clrsetbits_le32(&iomuxc_regs->gpr[1], IOMUX_GPR1_FEC1_MASK, 0);
+	else
+		/* Use 125M anatop REF_CLK1 for ENET2, clear gpr1[14], gpr1[18]*/
+		clrsetbits_le32(&iomuxc_regs->gpr[1], IOMUX_GPR1_FEC2_MASK, 0);
 
-	return enable_fec_anatop_clock(1, ENET_125MHZ);
+	return enable_fec_anatop_clock(fec_id, ENET_125MHZ);
 }
 
 int board_eth_init(bd_t *bis)
 {
 	int ret;
 
-	imx_iomux_v3_setup_multiple_pads(fec2_pads, ARRAY_SIZE(fec2_pads));
-	setup_fec();
+	if (0 == CONFIG_FEC_ENET_DEV)
+		imx_iomux_v3_setup_multiple_pads(fec1_pads, ARRAY_SIZE(fec1_pads));
+	else
+		imx_iomux_v3_setup_multiple_pads(fec2_pads, ARRAY_SIZE(fec2_pads));
 
-	ret = fecmxc_initialize_multi(bis, 1,
+	setup_fec(CONFIG_FEC_ENET_DEV);
+
+	ret = fecmxc_initialize_multi(bis, CONFIG_FEC_ENET_DEV,
 		CONFIG_FEC_MXC_PHYADDR, IMX_FEC_BASE);
 	if (ret)
 		printf("FEC%d MXC: %s:failed\n", 1, __func__);
@@ -248,14 +292,81 @@ struct i2c_pads_info i2c_pad_info3 = {
 
 int power_init_board(void)
 {
-	struct pmic *p;
-
-	p = pfuze_common_init(I2C_PMIC);
-	if (!p)
+	struct pmic *pfuze;
+	unsigned int reg;
+	int ret;
+	pfuze = pfuze_common_init(I2C_PMIC);
+	if (!pfuze)
 		return -ENODEV;
+	ret = pfuze_mode_init(pfuze, APS_PFM);
+	if (ret < 0)
+		return ret;
+
+	/* set SW1AB standby volatage 0.975V */
+	pmic_reg_read(pfuze, PFUZE100_SW1ABSTBY, &reg);
+	reg &= ~0x3f;
+	reg |= PFUZE100_SW1ABC_SETP(9750);
+	pmic_reg_write(pfuze, PFUZE100_SW1ABSTBY, reg);
+
+	/* set SW1AB/VDDARM step ramp up time from 16us to 4us/25mV */
+	pmic_reg_read(pfuze, PFUZE100_SW1ABCONF, &reg);
+	reg &= ~0xc0;
+	reg |= 0x40;
+	pmic_reg_write(pfuze, PFUZE100_SW1ABCONF, reg);
+
+	/* set SW1C standby volatage 1.10V */
+	pmic_reg_read(pfuze, PFUZE100_SW1CSTBY, &reg);
+	reg &= ~0x3f;
+	reg |= PFUZE100_SW1ABC_SETP(11000);
+	pmic_reg_write(pfuze, PFUZE100_SW1CSTBY, reg);
+
+	/* set SW1C/VDDSOC step ramp up time to from 16us to 4us/25mV */
+	pmic_reg_read(pfuze, PFUZE100_SW1CCONF, &reg);
+	reg &= ~0xc0;
+	reg |= 0x40;
+	pmic_reg_write(pfuze, PFUZE100_SW1CCONF, reg);
+
+	/* Enable power of VGEN5 3V3, needed for SD3 */
+	pmic_reg_read(pfuze, PFUZE100_VGEN5VOL, &reg);
+	reg &= ~LDO_VOL_MASK;
+	reg |= (LDOB_3_30V | (1 << LDO_EN));
+	pmic_reg_write(pfuze, PFUZE100_VGEN5VOL, reg);
 
 	return 0;
 }
+
+#ifdef CONFIG_LDO_BYPASS_CHECK
+void ldo_mode_set(int ldo_bypass)
+{
+	unsigned int value;
+
+	struct pmic *p = pmic_get("PFUZE100");
+
+	if (!p) {
+		printf("No PMIC found!\n");
+		return;
+	}
+
+	/* switch to ldo_bypass mode */
+	if (ldo_bypass) {
+		/* decrease VDDARM to 1.15V */
+		pmic_reg_read(p, PFUZE100_SW1ABVOL, &value);
+		value &= ~0x3f;
+		value |= PFUZE100_SW1ABC_SETP(11500);
+		pmic_reg_write(p, PFUZE100_SW1ABVOL, value);
+
+		/* decrease VDDSOC to 1.15V */
+		pmic_reg_read(p, PFUZE100_SW1CVOL, &value);
+		value &= ~0x3f;
+		value |= PFUZE100_SW1ABC_SETP(11500);
+		pmic_reg_write(p, PFUZE100_SW1CVOL, value);
+
+		set_anatop_bypass(1);
+
+		printf("switch to ldo_bypass mode!\n");
+	}
+}
+#endif
 
 #ifdef CONFIG_USB_EHCI_MX6
 #define USB_OTHERREGS_OFFSET	0x800
@@ -264,7 +375,7 @@ int power_init_board(void)
 static iomux_v3_cfg_t const usb_otg_pads[] = {
 	/* OGT1 */
 	MX6_PAD_GPIO1_IO09__USB_OTG1_PWR | MUX_PAD_CTRL(NO_PAD_CTRL),
-	MX6_PAD_GPIO1_IO10__ANATOP_OTG1_ID | MUX_PAD_CTRL(NO_PAD_CTRL),
+	MX6_PAD_GPIO1_IO10__ANATOP_OTG1_ID | MUX_PAD_CTRL(OTG_ID_PAD_CTRL),
 	/* OTG2 */
 	MX6_PAD_GPIO1_IO12__USB_OTG2_PWR | MUX_PAD_CTRL(NO_PAD_CTRL)
 };
@@ -315,6 +426,20 @@ static struct fsl_esdhc_cfg usdhc_cfg[3] = {
 #define USDHC3_CD_GPIO	IMX_GPIO_NR(7, 10)
 #define USDHC3_RST_GPIO	IMX_GPIO_NR(2, 11)
 #define USDHC4_CD_GPIO	IMX_GPIO_NR(7, 11)
+
+int board_mmc_get_env_dev(int devno)
+{
+	/*
+	 * need subtract 2 to map to the mmc device id
+	 * see the comments in board_mmc_init function
+	 */
+	return devno - 2;
+}
+
+int mmc_map_to_kernel_blk(int devno)
+{
+	return devno + 2;
+}
 
 int board_mmc_getcd(struct mmc *mmc)
 {
@@ -378,6 +503,105 @@ int board_mmc_init(bd_t *bis)
 
 	return 0;
 }
+
+#ifdef CONFIG_VIDEO_MXS
+static iomux_v3_cfg_t const lvds_ctrl_pads[] = {
+	/* Use GPIO for Brightness adjustment, duty cycle = period */
+	MX6_PAD_SD1_DATA1__GPIO6_IO_3 | MUX_PAD_CTRL(NO_PAD_CTRL),
+};
+
+static iomux_v3_cfg_t const lcd_pads[] = {
+	MX6_PAD_LCD1_CLK__LCDIF1_CLK | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_ENABLE__LCDIF1_ENABLE | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_HSYNC__LCDIF1_HSYNC | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_VSYNC__LCDIF1_VSYNC | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA00__LCDIF1_DATA_0 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA01__LCDIF1_DATA_1 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA02__LCDIF1_DATA_2 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA03__LCDIF1_DATA_3 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA04__LCDIF1_DATA_4 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA05__LCDIF1_DATA_5 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA06__LCDIF1_DATA_6 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA07__LCDIF1_DATA_7 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA08__LCDIF1_DATA_8 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA09__LCDIF1_DATA_9 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA10__LCDIF1_DATA_10 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA11__LCDIF1_DATA_11 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA12__LCDIF1_DATA_12 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA13__LCDIF1_DATA_13 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA14__LCDIF1_DATA_14 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA15__LCDIF1_DATA_15 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA16__LCDIF1_DATA_16 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_DATA17__LCDIF1_DATA_17 | MUX_PAD_CTRL(LCD_PAD_CTRL),
+	MX6_PAD_LCD1_RESET__GPIO3_IO_27 | MUX_PAD_CTRL(NO_PAD_CTRL),
+};
+
+void do_enable_lvds(struct display_info_t const *dev)
+{
+	enable_lcdif_clock(dev->bus);
+	enable_lvds_bridge(dev->bus);
+
+	imx_iomux_v3_setup_multiple_pads(lvds_ctrl_pads,
+							ARRAY_SIZE(lvds_ctrl_pads));
+
+	/* LVDS Enable pin */
+	port_exp_direction_output(LVDS_EN_PIN , 1);
+
+	/* Set Brightness to high */
+	gpio_direction_output(IMX_GPIO_NR(6, 3) , 1);
+}
+
+void do_enable_parallel_lcd(struct display_info_t const *dev)
+{
+	enable_lcdif_clock(dev->bus);
+
+	imx_iomux_v3_setup_multiple_pads(lcd_pads, ARRAY_SIZE(lcd_pads));
+
+	/* Power up the LCD */
+	gpio_direction_output(IMX_GPIO_NR(3, 27) , 1);
+}
+
+struct display_info_t const displays[] = {{
+	.bus = LCDIF2_BASE_ADDR,
+	.addr = 0,
+	.pixfmt = 18,
+	.detect = NULL,
+	.enable	= do_enable_lvds,
+	.mode	= {
+		.name			= "Hannstar-XGA",
+		.xres           = 1024,
+		.yres           = 768,
+		.pixclock       = 15385,
+		.left_margin    = 220,
+		.right_margin   = 40,
+		.upper_margin   = 21,
+		.lower_margin   = 7,
+		.hsync_len      = 60,
+		.vsync_len      = 10,
+		.sync           = 0,
+		.vmode          = FB_VMODE_NONINTERLACED
+} }, {
+	.bus = MX6SX_LCDIF1_BASE_ADDR,
+	.addr = 0,
+	.pixfmt = 18,
+	.detect = NULL,
+	.enable	= do_enable_parallel_lcd,
+	.mode	= {
+		.name			= "Boundary-LCD",
+		.xres           = 800,
+		.yres           = 480,
+		.pixclock       = 29850,
+		.left_margin    = 89,
+		.right_margin   = 164,
+		.upper_margin   = 23,
+		.lower_margin   = 10,
+		.hsync_len      = 10,
+		.vsync_len      = 10,
+		.sync           = 0,
+		.vmode          = FB_VMODE_NONINTERLACED
+} } };
+size_t display_count = ARRAY_SIZE(displays);
+#endif
 
 #ifdef CONFIG_FSL_QSPI
 
@@ -497,6 +721,13 @@ int board_late_init(void)
 	add_board_boot_modes(board_boot_modes);
 #endif
 
+#ifdef CONFIG_ENV_IS_IN_MMC
+	board_late_mmc_env_init();
+#endif
+
+	/* set WDOG_B to reset whole system */
+	set_wdog_reset((struct wdog_regs *)WDOG1_BASE_ADDR);
+
 	return 0;
 }
 
@@ -506,3 +737,91 @@ int checkboard(void)
 
 	return 0;
 }
+
+#ifdef CONFIG_FSL_FASTBOOT
+void board_fastboot_setup(void)
+{
+	switch (get_boot_device()) {
+#if defined(CONFIG_FASTBOOT_STORAGE_MMC)
+	case SD3_BOOT:
+	case MMC3_BOOT:
+		if (!getenv("fastboot_dev"))
+			setenv("fastboot_dev", "mmc0");
+		if (!getenv("bootcmd"))
+			setenv("bootcmd", "boota mmc0");
+		break;
+	case SD4_BOOT:
+	case MMC4_BOOT:
+		if (!getenv("fastboot_dev"))
+			setenv("fastboot_dev", "mmc1");
+		if (!getenv("bootcmd"))
+			setenv("bootcmd", "boota mmc1");
+		break;
+#endif /*CONFIG_FASTBOOT_STORAGE_MMC*/
+#if defined(CONFIG_FASTBOOT_STORAGE_NAND)
+	case NAND_BOOT:
+		if (!getenv("fastboot_dev"))
+			setenv("fastboot_dev", "nand");
+		if (!getenv("fbparts"))
+			setenv("fbparts", ANDROID_FASTBOOT_NAND_PARTS);
+		if (!getenv("bootcmd"))
+			setenv("bootcmd",
+				"nand read ${loadaddr} ${boot_nand_offset} "
+				"${boot_nand_size};boota ${loadaddr}");
+		break;
+#endif /*CONFIG_FASTBOOT_STORAGE_NAND*/
+
+	default:
+		printf("unsupported boot devices\n");
+		break;
+	}
+}
+
+#ifdef CONFIG_ANDROID_RECOVERY
+int check_recovery_cmd_file(void)
+{
+	int recovery_mode = 0;
+
+	recovery_mode = recovery_check_and_clean_flag();
+
+	return recovery_mode;
+}
+
+void board_recovery_setup(void)
+{
+	int bootdev = get_boot_device();
+
+	switch (bootdev) {
+#if defined(CONFIG_FASTBOOT_STORAGE_MMC)
+	case SD3_BOOT:
+	case MMC3_BOOT:
+		if (!getenv("bootcmd_android_recovery"))
+			setenv("bootcmd_android_recovery", "boota mmc0 recovery");
+		break;
+	case SD4_BOOT:
+	case MMC4_BOOT:
+		if (!getenv("bootcmd_android_recovery"))
+			setenv("bootcmd_android_recovery", "boota mmc1 recovery");
+		break;
+#endif /*CONFIG_FASTBOOT_STORAGE_MMC*/
+#if defined(CONFIG_FASTBOOT_STORAGE_NAND)
+	case NAND_BOOT:
+		if (!getenv("bootcmd_android_recovery"))
+			setenv("bootcmd_android_recovery",
+				"nand read ${loadaddr} ${recovery_nand_offset} "
+				"${recovery_nand_size};boota ${loadaddr}");
+		break;
+#endif /*CONFIG_FASTBOOT_STORAGE_NAND*/
+	default:
+		printf("Unsupported bootup device for recovery: dev: %d\n",
+			bootdev);
+		return;
+	}
+
+	printf("setup env for recovery..\n");
+	setenv("bootcmd", "run bootcmd_android_recovery");
+}
+#endif /*CONFIG_ANDROID_RECOVERY*/
+
+#endif /*CONFIG_FSL_FASTBOOT*/
+

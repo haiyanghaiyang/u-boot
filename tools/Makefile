@@ -207,6 +207,7 @@ LOGO_BMP= $(srctree)/$(src)/logos/$(BOARD).bmp
 else
 ifneq ($(wildcard $(srctree)/$(src)/logos/$(VENDOR).bmp),)
 LOGO_BMP= $(srctree)/$(src)/logos/$(VENDOR).bmp
+#LOGO_BMP= $(srctree)/$(src)/logos/alientek.bmp
 endif
 endif
 

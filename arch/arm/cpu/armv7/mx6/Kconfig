@@ -26,10 +26,18 @@ config MX6SX
 	select ROM_UNIFIED_SECTIONS
 	bool
 
+config MX6SLL
+	select ROM_UNIFIED_SECTIONS
+	bool
+
 config MX6UL
 	select SYS_L2CACHE_OFF
 	select ROM_UNIFIED_SECTIONS
 	bool
+
+config MX6ULL
+	bool
+	select MX6UL
 
 choice
 	prompt "MX6 board select"
@@ -74,6 +82,8 @@ config TARGET_MX6CUBOXI
 
 config TARGET_MX6QARM2
 	bool "mx6qarm2"
+	select DM
+	select DM_THERMAL
 
 config TARGET_MX6QSABREAUTO
 	bool "mx6qsabreauto"
@@ -89,15 +99,31 @@ config TARGET_MX6SABRESD
 config TARGET_MX6SLEVK
 	bool "mx6slevk"
 	select SUPPORT_SPL
+	select DM
+	select DM_THERMAL
+
+config TARGET_MX6SLLEVK
+        bool "mx6sll evk"
+        select MX6SLL
+        select DM
+        select DM_THERMAL
+
+config TARGET_MX6SLL_ARM2
+	bool "mx6sll arm2"
+	select MX6SLL
+	select DM
+	select DM_THERMAL
 
 config TARGET_MX6SXSABRESD
 	bool "mx6sxsabresd"
+	select MX6SX
 	select SUPPORT_SPL
 	select DM
 	select DM_THERMAL
 
 config TARGET_MX6SXSABREAUTO
         bool "mx6sxsabreauto"
+	select MX6SX
         select DM
         select DM_THERMAL
 
@@ -115,6 +141,36 @@ config TARGET_MX6UL_14X14_EVK
 	select DM_THERMAL
 	select SUPPORT_SPL
 
+config TARGET_MX6UL_14X14_DDR3_ARM2
+	bool "mx6ul_14x14_ddr3_arm2"
+	select MX6UL
+	select DM
+	select DM_THERMAL
+
+config TARGET_MX6UL_14X14_LPDDR2_ARM2
+	bool "mx6ul_14x14_lpddr2_arm2"
+	select MX6UL
+	select DM
+	select DM_THERMAL
+
+config TARGET_MX6SX_17X17_ARM2
+	bool "mx6sx_17x17_arm2"
+	select MX6SX
+	select DM
+	select DM_THERMAL
+
+config TARGET_MX6SX_19X19_ARM2
+	bool "mx6sx_19x19_arm2"
+	select MX6SX
+	select DM
+	select DM_THERMAL
+
+config TARGET_PICOSOM_IMX6UL
+        bool "Support picosom-imx6ul"
+	select MX6UL
+	select DM
+	select DM_THERMAL
+
 config TARGET_NITROGEN6X
 	bool "nitrogen6x"
 
@@ -129,6 +185,24 @@ config TARGET_PLATINUM_PICON
 config TARGET_PLATINUM_TITANIUM
 	bool "platinum-titanium"
 	select SUPPORT_SPL
+
+config TARGET_MX6ULL_DDR3_ARM2
+	bool "Support mx6ull_ddr3_arm2"
+	select MX6ULL
+	select DM
+	select DM_THERMAL
+
+config TARGET_MX6ULL_14X14_EVK
+	bool "Support mx6ull_14x14_evk"
+	select MX6ULL
+	select DM
+	select DM_THERMAL
+
+config TARGET_MX6ULL_9X9_EVK
+	bool "Support mx6ull_9x9_evk"
+	select MX6ULL
+	select DM
+	select DM_THERMAL
 
 config TARGET_SECOMX6
 	bool "secomx6 boards"
@@ -153,6 +227,17 @@ config TARGET_WANDBOARD
 config TARGET_WARP
 	bool "WaRP"
 
+config TARGET_MX6DQSCM
+	bool "mx6dqscm"
+	select DM
+	select DM_THERMAL
+
+config TARGET_MX6SXSCM
+        bool "mx6sxscm"
+        select MX6SX
+        select DM
+        select DM_THERMAL
+
 endchoice
 
 config SYS_SOC
@@ -170,17 +255,28 @@ source "board/freescale/mx6qarm2/Kconfig"
 source "board/freescale/mx6qsabreauto/Kconfig"
 source "board/freescale/mx6sabresd/Kconfig"
 source "board/freescale/mx6slevk/Kconfig"
+source "board/freescale/mx6sllevk/Kconfig"
+source "board/freescale/mx6sll_arm2/Kconfig"
 source "board/freescale/mx6sxsabresd/Kconfig"
 source "board/freescale/mx6sxsabreauto/Kconfig"
 source "board/freescale/mx6ul_14x14_evk/Kconfig"
+source "board/freescale/mx6sx_17x17_arm2/Kconfig"
+source "board/freescale/mx6sx_19x19_arm2/Kconfig"
+source "board/freescale/mx6ul_14x14_ddr3_arm2/Kconfig"
+source "board/freescale/mx6ul_14x14_lpddr2_arm2/Kconfig"
+source "board/freescale/mx6ull_ddr3_arm2/Kconfig"
+source "board/freescale/mx6ullevk/Kconfig"
 source "board/gateworks/gw_ventana/Kconfig"
 source "board/kosagi/novena/Kconfig"
 source "board/seco/Kconfig"
 source "board/solidrun/mx6cuboxi/Kconfig"
 source "board/tbs/tbs2910/Kconfig"
+source "board/technexion/picosom-imx6ul/Kconfig"
 source "board/tqc/tqma6/Kconfig"
 source "board/udoo/Kconfig"
 source "board/wandboard/Kconfig"
 source "board/warp/Kconfig"
+source "board/freescale/mx6dqscm/Kconfig"
+source "board/freescale/mx6sxscm/Kconfig"
 
 endif

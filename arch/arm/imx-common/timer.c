@@ -2,7 +2,7 @@
  * (C) Copyright 2007
  * Sascha Hauer, Pengutronix
  *
- * (C) Copyright 2009 Freescale Semiconductor, Inc.
+ * (C) Copyright 2009-2016 Freescale Semiconductor, Inc.
  *
  * SPDX-License-Identifier:	GPL-2.0+
  */
@@ -43,13 +43,17 @@ DECLARE_GLOBAL_DATA_PTR;
 static inline int gpt_has_clk_source_osc(void)
 {
 #if defined(CONFIG_MX6)
-	if (((is_cpu_type(MXC_CPU_MX6Q) || is_cpu_type(MXC_CPU_MX6D)) &&
+	if (is_cpu_type(MXC_CPU_MX6QP) || is_cpu_type(MXC_CPU_MX6DP) ||
+	    ((is_cpu_type(MXC_CPU_MX6Q) || is_cpu_type(MXC_CPU_MX6D)) &&
 	    (soc_rev() > CHIP_REV_1_0)) || is_cpu_type(MXC_CPU_MX6DL) ||
 	     is_cpu_type(MXC_CPU_MX6SOLO) || is_cpu_type(MXC_CPU_MX6SX) ||
-	     is_cpu_type(MXC_CPU_MX6UL))
+	     is_cpu_type(MXC_CPU_MX6UL) || is_cpu_type(MXC_CPU_MX6ULL) ||
+	     is_cpu_type(MXC_CPU_MX6SLL))
 		return 1;
 
 	return 0;
+#elif defined(CONFIG_MX7)
+	return 1;
 #else
 	return 0;
 #endif
@@ -57,6 +61,9 @@ static inline int gpt_has_clk_source_osc(void)
 
 static inline ulong gpt_get_clk(void)
 {
+#if defined(CONFIG_MX7)
+	return MXC_HCLK >> 3;
+#else
 #ifdef CONFIG_MXC_GPT_HCLK
 	if (gpt_has_clk_source_osc())
 		return MXC_HCLK >> 3;
@@ -64,6 +71,7 @@ static inline ulong gpt_get_clk(void)
 		return mxc_get_clock(MXC_IPG_PERCLK);
 #else
 	return MXC_CLK32;
+#endif
 #endif
 }
 
@@ -85,11 +93,14 @@ int timer_init(void)
 	if (gpt_has_clk_source_osc()) {
 		i |= GPTCR_CLKSOURCE_OSC | GPTCR_TEN;
 
-		/* For DL/S, SX, UL, set 24Mhz OSC Enable bit and prescaler */
+		/* For DL/S, SX, UL, ULL set 24Mhz OSC Enable bit and prescaler */
 		if (is_cpu_type(MXC_CPU_MX6DL) ||
 		    is_cpu_type(MXC_CPU_MX6SOLO) ||
 		    is_cpu_type(MXC_CPU_MX6SX) ||
-		    is_cpu_type(MXC_CPU_MX6UL)) {
+		    is_cpu_type(MXC_CPU_MX7D) ||
+		    is_cpu_type(MXC_CPU_MX6UL) ||
+		    is_cpu_type(MXC_CPU_MX6ULL) ||
+		    is_cpu_type(MXC_CPU_MX6SLL)) {
 			i |= GPTCR_24MEN;
 
 			/* Produce 3Mhz clock */

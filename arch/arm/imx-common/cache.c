@@ -1,5 +1,5 @@
 /*
- * Copyright 2015 Freescale Semiconductor, Inc.
+ * Copyright 2015-2016 Freescale Semiconductor, Inc.
  *
  * SPDX-License-Identifier:     GPL-2.0+
  */
@@ -39,8 +39,14 @@ void enable_caches(void)
 void v7_outer_cache_enable(void)
 {
 	struct pl310_regs *const pl310 = (struct pl310_regs *)L2_PL310_BASE;
-	unsigned int val;
+	unsigned int val, cache_id;
 
+
+	/*
+	 * Must disable the L2 before changing the latency parameters
+	 * and auxiliary control register.
+	 */
+	clrbits_le32(&pl310->pl310_ctrl, L2X0_CTRL_EN);
 
 	/*
 	 * Set bit 22 in the auxiliary control register. If this bit
@@ -49,7 +55,7 @@ void v7_outer_cache_enable(void)
 	 */
 	setbits_le32(&pl310->pl310_aux_ctrl, L310_SHARED_ATT_OVERRIDE_ENABLE);
 
-#if defined CONFIG_MX6SL
+#if defined(CONFIG_MX6SL) || defined(CONFIG_MX6SLL)
 	struct iomuxc *iomux = (struct iomuxc *)IOMUXC_BASE_ADDR;
 	val = readl(&iomux->gpr[11]);
 	if (val & IOMUXC_GPR11_L2CACHE_AS_OCRAM) {
@@ -59,30 +65,29 @@ void v7_outer_cache_enable(void)
 	}
 #endif
 
-	/* Must disable the L2 before changing the latency parameters */
-	clrbits_le32(&pl310->pl310_ctrl, L2X0_CTRL_EN);
-
 	writel(0x132, &pl310->pl310_tag_latency_ctrl);
 	writel(0x132, &pl310->pl310_data_latency_ctrl);
 
 	val = readl(&pl310->pl310_prefetch_ctrl);
 
-	/* Turn on the L2 I/D prefetch */
-	val |= 0x30000000;
+	/* Turn on the L2 I/D prefetch, double linefill */
+	/* Set prefetch offset with any value except 23 as per errata 765569 */
+	val |= 0x7000000f;
 
 	/*
 	 * The L2 cache controller(PL310) version on the i.MX6D/Q is r3p1-50rel0
-	 * The L2 cache controller(PL310) version on the i.MX6DL/SOLO/SL is r3p2
+	 * The L2 cache controller(PL310) version on the i.MX6DL/SOLO/SL/SX/DQP
+	 * is r3p2.
 	 * But according to ARM PL310 errata: 752271
 	 * ID: 752271: Double linefill feature can cause data corruption
 	 * Fault Status: Present in: r3p0, r3p1, r3p1-50rel0. Fixed in r3p2
 	 * Workaround: The only workaround to this erratum is to disable the
 	 * double linefill feature. This is the default behavior.
 	 */
-
-#ifndef CONFIG_MX6Q
-	val |= 0x40800000;
-#endif
+	cache_id = readl(&pl310->pl310_cache_id);
+	if (((cache_id & L2X0_CACHE_ID_PART_MASK) == L2X0_CACHE_ID_PART_L310)
+	    && ((cache_id & L2X0_CACHE_ID_RTL_MASK) < L2X0_CACHE_ID_RTL_R3P2))
+		val &= ~(1 << 30);
 	writel(val, &pl310->pl310_prefetch_ctrl);
 
 	val = readl(&pl310->pl310_power_ctrl);

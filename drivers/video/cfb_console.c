@@ -2,6 +2,8 @@
  * (C) Copyright 2002 ELTEC Elektronik AG
  * Frank Gottschling <fgottschling@eltec.de>
  *
+ * Copyright (C) 2015-2016 Freescale Semiconductor, Inc.
+ *
  * SPDX-License-Identifier:	GPL-2.0+
  */
 
@@ -201,6 +203,8 @@
 	defined
 #endif
 void console_cursor(int state);
+
+extern int do_nand(cmd_tbl_t *cmdtp, int flag, int argc, char * const argv[]);
 
 #define CURSOR_ON  console_cursor(1)
 #define CURSOR_OFF console_cursor(0)
@@ -1937,7 +1941,24 @@ static void *video_logo(void)
 	splash_get_pos(&video_logo_xpos, &video_logo_ypos);
 
 #ifdef CONFIG_SPLASH_SCREEN
+
 	s = getenv("splashimage");
+
+#if defined(CONFIG_ENV_IS_IN_MMC)
+extern int mmc_get_env_dev(void);
+	char mmc_part[20] = {0};
+	sprintf(mmc_part, "%d:%d", mmc_get_env_dev(), 1);
+	char *argv[5] = {
+	"fatload", "mmc", mmc_part, s, getenv("logo_file")};
+
+	do_fat_fsload(NULL, 0, 5, argv);
+#elif defined(CONFIG_ENV_IS_IN_NAND)
+	char *argv[5] = {
+	"nand", "read", s, getenv("logo_offset"), getenv("logo_size")};
+
+	do_nand(NULL, 0, 5, argv);
+#endif
+
 	if (s != NULL) {
 		splash_screen_prepare();
 		addr = simple_strtoul(s, NULL, 16);
@@ -1978,16 +1999,31 @@ static void *video_logo(void)
 
 	sprintf(info, " %s", version_string);
 
-	space = (VIDEO_LINE_LEN / 2 - VIDEO_INFO_X) / VIDEO_FONT_WIDTH;
+	space = (VIDEO_COLS - VIDEO_INFO_X) / VIDEO_FONT_WIDTH;
 	len = strlen(info);
 
 	if (len > space) {
-		video_drawchars(VIDEO_INFO_X, VIDEO_INFO_Y,
-				(uchar *) info, space);
-		video_drawchars(VIDEO_INFO_X + VIDEO_FONT_WIDTH,
-				VIDEO_INFO_Y + VIDEO_FONT_HEIGHT,
-				(uchar *) info + space, len - space);
-		y_off = 1;
+		int xx = VIDEO_INFO_X, yy = VIDEO_INFO_Y;
+		uchar *p = (uchar *) info;
+		while (len) {
+			if (len > space) {
+				video_drawchars(xx, yy, p, space);
+				len -= space;
+
+				p = (uchar *) p + space;
+
+				if (!y_off) {
+					xx += VIDEO_FONT_WIDTH;
+					space--;
+				}
+				yy += VIDEO_FONT_HEIGHT;
+
+				y_off++;
+			} else {
+				video_drawchars(xx, yy, p, len);
+				len = 0;
+			}
+		}
 	} else
 		video_drawstring(VIDEO_INFO_X, VIDEO_INFO_Y, (uchar *) info);
 

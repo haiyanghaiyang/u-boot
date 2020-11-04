@@ -75,6 +75,8 @@ DECLARE_GLOBAL_DATA_PTR = (gd_t *) (CONFIG_SYS_INIT_GD_ADDR);
 DECLARE_GLOBAL_DATA_PTR;
 #endif
 
+extern int imx6_light_up_led1 (void);
+
 /*
  * TODO(sjg@chromium.org): IMO this code should be
  * refactored to a single function, something like:
@@ -1064,6 +1066,9 @@ void board_init_f(ulong boot_flags)
 	/* NOTREACHED - jump_to_copy() does not return */
 	hang();
 #endif
+
+	/* Light up LED1 */
+	imx6_light_up_led1();
 }
 
 #if defined(CONFIG_X86) || defined(CONFIG_ARC)

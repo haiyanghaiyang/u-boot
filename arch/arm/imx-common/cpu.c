@@ -2,7 +2,7 @@
  * (C) Copyright 2007
  * Sascha Hauer, Pengutronix
  *
- * (C) Copyright 2009 Freescale Semiconductor, Inc.
+ * (C) Copyright 2009-2016 Freescale Semiconductor, Inc.
  *
  * SPDX-License-Identifier:	GPL-2.0+
  */
@@ -20,6 +20,10 @@
 #include <ipu_pixfmt.h>
 #include <thermal.h>
 #include <sata.h>
+
+#ifdef CONFIG_VIDEO_GIS
+#include <gis.h>
+#endif
 
 #ifdef CONFIG_FSL_ESDHC
 #include <fsl_esdhc.h>
@@ -151,12 +155,16 @@ const char *get_imx_type(u32 imxtype)
 		return "6DL";	/* Dual Lite version of the mx6 */
 	case MXC_CPU_MX6SOLO:
 		return "6SOLO";	/* Solo version of the mx6 */
+	case MXC_CPU_MX6SLL:
+		return "6SLL";	/* Solo-Lite-Lite version of the mx6 */
 	case MXC_CPU_MX6SL:
 		return "6SL";	/* Solo-Lite version of the mx6 */
 	case MXC_CPU_MX6SX:
 		return "6SX";   /* SoloX version of the mx6 */
 	case MXC_CPU_MX6UL:
 		return "6UL";   /* Ultra-Lite version of the mx6 */
+	case MXC_CPU_MX6ULL:
+		return "6ULL";	/* ULL version of the mx6 */
 	case MXC_CPU_MX51:
 		return "51";
 	case MXC_CPU_MX53:
@@ -170,6 +178,10 @@ int print_cpuinfo(void)
 {
 	u32 cpurev;
 	__maybe_unused u32 max_freq;
+#if defined(CONFIG_DBG_MONITOR)
+	struct dbg_monitor_regs *dbg =
+		(struct dbg_monitor_regs *)DEBUG_MONITOR_BASE_ADDR;
+#endif
 
 	cpurev = get_cpu_rev();
 
@@ -226,6 +238,14 @@ int print_cpuinfo(void)
 	}
 #endif
 
+#if defined(CONFIG_DBG_MONITOR)
+	if (readl(&dbg->snvs_addr))
+		printf("DBG snvs regs addr 0x%x, data 0x%x, info 0x%x\n",
+		       readl(&dbg->snvs_addr),
+		       readl(&dbg->snvs_data),
+		       readl(&dbg->snvs_info));
+#endif
+
 	printf("Reset cause: %s\n", get_reset_cause());
 	return 0;
 }
@@ -275,9 +295,16 @@ void arch_preboot_os(void)
 	disable_sata_clock();
 #endif
 #endif
+#if defined(CONFIG_LDO_BYPASS_CHECK)
+	ldo_mode_set(check_ldo_bypass());
+#endif
 #if defined(CONFIG_VIDEO_IPUV3)
 	/* disable video before launching O/S */
 	ipuv3_fb_shutdown();
+#endif
+#ifdef CONFIG_VIDEO_GIS
+	/* Entry for GIS */
+	mxc_disable_gis();
 #endif
 #if defined(CONFIG_VIDEO_MXS)
 	lcdif_power_down();

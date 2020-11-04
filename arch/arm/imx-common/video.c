@@ -1,4 +1,6 @@
 /*
+ * Copyright (C) 2016 Freescale Semiconductor, Inc.
+ *
  * SPDX-License-Identifier:	GPL-2.0+
  */
 
@@ -6,12 +8,18 @@
 #include <asm/errno.h>
 #include <asm/imx-common/video.h>
 
+extern void select_display_dev (void);
+
 int board_video_skip(void)
 {
 	int i;
 	int ret;
-	char const *panel = getenv("panel");
+	char const *panel;
 
+	/* Select LCD configuration based on current hardware ID */
+	select_display_dev();
+
+	panel = getenv("panel");
 	if (!panel) {
 		for (i = 0; i < display_count; i++) {
 			struct display_info_t const *dev = displays+i;
@@ -34,8 +42,14 @@ int board_video_skip(void)
 	}
 
 	if (i < display_count) {
+#if defined(CONFIG_VIDEO_IPUV3)
 		ret = ipuv3_fb_init(&displays[i].mode, 0,
 				    displays[i].pixfmt);
+#elif defined(CONFIG_VIDEO_MXS)
+		ret = mxs_lcd_panel_setup(displays[i].mode,
+					displays[i].pixfmt,
+				    displays[i].bus);
+#endif
 		if (!ret) {
 			if (displays[i].enable)
 				displays[i].enable(displays + i);
